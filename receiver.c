@@ -10,17 +10,12 @@
 
 #define PORT 8888
 #define BUFFER_SIZE 2048
-#define WINDOW_SIZE 50          // packets per loss-rate feedback report (unchanged from original)
-#define PACKET_DATA_MAX 1400    // matches sender's PACKET_SIZE
+#define WINDOW_SIZE 50          
+#define PACKET_DATA_MAX 1400   
 
-// --- Reorder / jitter buffer tuning ---
-#define REORDER_WINDOW 32       // how many sequence numbers ahead we're willing to hold
-#define REORDER_TIMEOUT_MS 40   // how long we wait for a missing packet before giving up.
-                                 // This is a latency/robustness trade-off, the same one every
-                                 // jitter buffer makes: raise it to tolerate worse reordering
-                                 // at the cost of playout delay; lower it for less delay at
-                                 // the cost of treating merely-slow packets as lost.
 
+#define REORDER_WINDOW 32      
+#define REORDER_TIMEOUT_MS 40   
 typedef struct {
     int valid;
     unsigned int seq_num;
@@ -44,15 +39,13 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    // Fixed from the original: this now runs AFTER socket() creates sockfd.
-    // (Original called setsockopt on sockfd before it was initialized.)
+   
     int rcvbuf_size = 1024 * 1024;
     if (setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &rcvbuf_size, sizeof(rcvbuf_size)) < 0) {
         perror("Could not set socket buffer size");
     }
 
-    // Poll with a short timeout instead of blocking forever, so we notice
-    // expired reorder-buffer entries even when no new packet has arrived.
+    
     struct timeval rcvtimeo = { .tv_sec = 0, .tv_usec = 10000 }; // 10ms
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &rcvtimeo, sizeof(rcvtimeo));
 
@@ -93,7 +86,7 @@ int main(void) {
             memcpy(&timestamp, buffer + 4, 4);
             seq_num = ntohl(seq_num);
             timestamp = ntohl(timestamp);
-            (void)timestamp; // extracted but not used yet -- natural next step is RTT/jitter
+            (void)timestamp; 
 
             int data_len = len - 8;
 
@@ -104,10 +97,8 @@ int main(void) {
             } else if (data_len > 0 && data_len <= PACKET_DATA_MAX) {
                 unsigned int idx = seq_num % REORDER_WINDOW;
                 if (window_buf[idx].valid && window_buf[idx].seq_num != seq_num) {
-                    // Defensive: something has been sitting unresolved far
-                    // longer than REORDER_TIMEOUT_MS should ever allow.
-                    // Shouldn't happen given the timeout below, but don't
-                    // silently overwrite/corrupt data if it does.
+                    
+                    
                     fprintf(stderr, "\n[Reorder] window collision at seq %u -- dropping\n", seq_num);
                 } else {
                     window_buf[idx].valid = 1;
@@ -123,11 +114,8 @@ int main(void) {
         } else if (len < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
             perror("recvfrom");
         }
-        // len < 0 with EAGAIN/EWOULDBLOCK just means the 10ms poll elapsed
-        // with nothing to read -- fall through to the checks below exactly
-        // as if a packet had arrived, so timeouts get noticed promptly.
-
-        // --- Release phase: drain everything deliverable, strictly in order ---
+       
+      
         int made_progress = 1;
         while (made_progress) {
             made_progress = 0;
@@ -142,15 +130,6 @@ int main(void) {
                 total_packets_window++;
                 made_progress = 1;
             } else if (have_seen_any && highest_seq_seen > next_seq_to_release) {
-                // Only start (or check) the timeout clock once we have actual
-                // evidence a LATER packet already arrived -- that's what makes
-                // next_seq_to_release "overdue" rather than just "not sent yet".
-                // Without this guard, the clock starts the instant the receiver
-                // boots (waiting on seq 0 with nothing sent), fires before the
-                // very first real packet arrives, and once next_seq_to_release
-                // has raced ahead of the sender, every genuine packet looks
-                // "too late" (seq_num < next_seq_to_release) and gets dropped
-                // forever -- a permanent runaway, not a one-off startup glitch.
                 unsigned long t = now_ms();
                 if (gap_start_ms == 0) {
                     gap_start_ms = t;
@@ -164,16 +143,8 @@ int main(void) {
                     made_progress = 1; // retry: may cascade-release what was queued behind it
                 }
             }
-            // else: next_seq_to_release simply hasn't arrived yet and nothing
-            // later has either -- no evidence of a gap, so no timer runs; we
-            // just keep waiting (correct for both stream startup and being
-            // fully caught up).
+            
         }
-
-        // --- Feedback phase: same cadence/wire format as the original, but
-        // now driven by genuinely-resolved outcomes (delivered or timed-out)
-        // instead of raw arrival-order gaps -- so reordering no longer
-        // inflates the loss rate reported to the sender's AIMD loop. ---
         if (total_packets_window >= WINDOW_SIZE) {
             float loss_rate = (float)lost_count / total_packets_window;
 
