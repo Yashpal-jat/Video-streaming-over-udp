@@ -14,12 +14,7 @@
 #define PACKET_SIZE 1400
 #define HEADER_SIZE 8
 
-// AIMD Parameters -- unchanged from the original sender.c. AIMD still owns
-// pacing (how fast we push bytes at the CURRENTLY SELECTED quality); ABS
-// just decides WHICH quality's bytes those are. The two are complementary,
-// not competing: AIMD reacts every ~50 packets, ABS only reacts at segment
-// boundaries, so ABS is the coarse-grained decision and AIMD is the
-// fine-grained one.
+
 #define ALPHA 10
 #define BETA 0.5
 #define MIN_RATE 10
@@ -27,7 +22,7 @@
 
 #define ARTIFICIAL_LOSS_PROB 0.001
 
-// ---- ABS additions ----
+
 #define NUM_TIERS 3
 
 typedef struct {
@@ -36,7 +31,7 @@ typedef struct {
     const char *label;
 } Tier;
 
-// Must match the bitrates baked into encode_renditions.sh
+
 static Tier tiers[NUM_TIERS] = {
     { "renditions/low",  400000,  "LOW (400kbps/240p)"  },
     { "renditions/mid",  1200000, "MID (1200kbps/480p)" },
@@ -55,14 +50,7 @@ unsigned long get_time_us() {
     return tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
-// Decide which tier to use for the NEXT segment, given the AIMD rate
-// estimate. Only ever steps one tier up or down per call (per segment
-// boundary) -- real ABR players do the same, since jumping straight from
-// 240p to 720p the moment bandwidth spikes tends to just cause another
-// drop a few seconds later. Up/down thresholds are deliberately different
-// (1.5x vs 1.1x headroom) so the choice doesn't flap back and forth when
-// throughput is hovering right at a boundary -- this hysteresis gap is
-// the main knob you'd tune if you were demoing this.
+
 int choose_tier(int current_tier, unsigned int rate_pps) {
     double estimated_bps = (double)rate_pps * PACKET_SIZE * 8.0;
 
@@ -124,8 +112,8 @@ int main(int argc, char *argv[]) {
     Packet pkt;
     int bytes_read;
 
-    int current_tier = 0;   // start conservative (LOW) and let AIMD probe up,
-                             // same "start safe" logic as TCP slow start
+    int current_tier = 0;   
+                             
     int segment_idx = 0;
 
     printf("[Sender-ABS] Starting stream with %d quality tiers...\n", NUM_TIERS);
@@ -147,10 +135,7 @@ int main(int argc, char *argv[]) {
         bytes_read = fread(pkt.data, 1, PACKET_SIZE, fp);
 
         if (bytes_read <= 0) {
-            // Current segment exhausted. This is the ONLY point where we
-            // allow a quality switch, because every segment starts on a
-            // keyframe (guaranteed by encode_renditions.sh) -- so jumping
-            // to a different tier here never lands mid-GOP.
+           
             fclose(fp);
             segment_idx++;
 
